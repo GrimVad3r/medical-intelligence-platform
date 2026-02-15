@@ -1,0 +1,13 @@
+# Copy to profiles.yml and set credentials (excluded from git)
+medical_intel:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: localhost
+      port: 5432
+      user: postgres
+      password: postgres
+      dbname: medical_intel
+      schema: public
+      threads: 4

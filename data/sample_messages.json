@@ -1,0 +1,4 @@
+[
+  {"channel_id": "sample", "external_id": "1", "text": "Patient prescribed Metformin 500mg for diabetes."},
+  {"channel_id": "sample", "external_id": "2", "text": "Adverse event: rash reported with Amoxicillin."}
+]
