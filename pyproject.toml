@@ -21,6 +21,7 @@ dependencies = [
     "httpx>=0.26.0",
     "streamlit>=1.29.0",
     "dagster>=1.6.0",
+    "requests>=2.32.5",
 ]
 
 [project.optional-dependencies]
