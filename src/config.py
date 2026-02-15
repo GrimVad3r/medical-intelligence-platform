@@ -1,7 +1,7 @@
 """Configuration management via environment and pydantic-settings."""
 
 from functools import lru_cache
-from typing import List
+from typing import List, Any, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,23 +10,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Environment: development | staging | production
-    environment: str = "development"
+    # Database
+    database_url: str 
+    database_pool_size: int = 20 
+    database_max_overflow: int = 40 
 
-    database_url: str = "postgresql://localhost:5432/medical_intel"
-    database_pool_size: int = 5
-    database_max_overflow: int = 10
-    database_pool_timeout: int = 30
+    # Telegram Credentials
+    telegram_api_id: int 
+    telegram_api_hash: str 
+    telegram_channels: Any = []
 
-    telegram_api_id: str | None = None
-    telegram_api_hash: str | None = None
-    telegram_session_string: str | None = None
-    telegram_channels: List[str] = []
+    # Telegram Proxy Configuration
+    telegram_proxy_addr: str | None = None 
+    telegram_proxy_port: int | None = None 
+    telegram_proxy_secret: str | None = None 
 
     @field_validator("telegram_channels", mode="before")
     @classmethod
-    def parse_channels(cls, v):
+    def parse_channels(cls, v: Any) -> List[str]:
         if isinstance(v, str):
+            # Split by comma and clean up whitespace
             return [x.strip() for x in v.split(",") if x.strip()]
         return v or []
 

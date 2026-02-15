@@ -9,5 +9,6 @@ medical_intel:
       user: postgres
       password: postgres
       dbname: medical_intel
+      password: "12345678"
       schema: public
       threads: 4

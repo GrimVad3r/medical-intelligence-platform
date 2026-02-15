@@ -5,7 +5,6 @@ profile: medical_intel
 
 model-paths: ["models"]
 target-path: "target"
-logs-path: "logs"
 packages-install-path: "dbt_packages"
 
 models:

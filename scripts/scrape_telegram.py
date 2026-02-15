@@ -43,7 +43,7 @@ def main():
         default=None,
         help="Comma-separated channel usernames or IDs (or use config)",
     )
-    parser.add_argument("--limit", type=int, default=100, help="Max messages per channel")
+    parser.add_argument("--limit", type=int, default=1000, help="Max messages per channel")
     parser.add_argument("--since", type=str, default=None, help="ISO date (e.g. 2024-01-01)")
     parser.add_argument("--nlp", action="store_true", help="Run NLP pipeline on messages")
     parser.add_argument("--dry-run", action="store_true", help="Fetch only; do not persist")

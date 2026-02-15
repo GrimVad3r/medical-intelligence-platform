@@ -24,7 +24,7 @@ class TelegramScraper:
     def scrape_channels(self, channels: list[str]) -> dict[str, Any]:
         """Fetch messages from each channel. Returns {messages: [...], counts: {channel: n}}."""
         try:
-            from telethon import TelegramClient
+            from telethon import TelegramClient , connection
             from telethon.tl.types import Message as TgMessage
             from src.config import get_settings
         except ImportError as e:
@@ -41,7 +41,22 @@ class TelegramScraper:
         import asyncio
 
         async def _run():
-            client = TelegramClient("medical_intel_session", int(api_id), api_hash)
+            settings= get_settings()
+            proxy_config = None
+            if settings.telegram_proxy_addr:
+                proxy_config = (
+                    settings.telegram_proxy_addr, 
+                    settings.telegram_proxy_port, 
+                    settings.telegram_proxy_secret
+                )
+
+            client = TelegramClient(
+                "medical_intel_session", 
+                settings.telegram_api_id, 
+                settings.telegram_api_hash,
+                connection=connection.ConnectionTcpMTProxyRandomizedIntermediate,
+                proxy=proxy_config  # Referencing environment details 
+            )
             messages = []
             counts = {}
             try:
