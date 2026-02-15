@@ -1,0 +1,4 @@
+[
+  {"channel_id": "fixture", "external_id": "1", "text": "Sample message one."},
+  {"channel_id": "fixture", "external_id": "2", "text": "Sample message two."}
+]
