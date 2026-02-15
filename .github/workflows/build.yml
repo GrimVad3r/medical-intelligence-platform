@@ -1,0 +1,23 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt -r requirements-dev.txt && pip install -e .
+      - run: pytest tests/unit -v --ignore=tests/integration --ignore=tests/performance -x
+        env:
+          DATABASE_URL: sqlite:///:memory:
+      - name: Build Docker image
+        run: docker build -t medical-intel-api:${{ github.sha }} -f Dockerfile .
+        continue-on-error: true

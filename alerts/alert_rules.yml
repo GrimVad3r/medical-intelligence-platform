@@ -1,0 +1,10 @@
+groups:
+  - name: medical_intel
+    rules:
+      - alert: APIDown
+        expr: up{job="api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is down"

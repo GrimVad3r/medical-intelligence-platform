@@ -1,0 +1,25 @@
+name: Security
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: "0 0 * * 0"  # weekly
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install bandit safety
+      - name: Bandit (security linter)
+        run: bandit -r src dashboards scripts -ll -x ./tests
+        continue-on-error: true
+      - name: Safety (dependency vulnerabilities)
+        run: pip install -r requirements.txt && safety check --json
+        continue-on-error: true
