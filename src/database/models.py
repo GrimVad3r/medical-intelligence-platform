@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
 
 class Base(DeclarativeBase):
@@ -20,7 +21,10 @@ class Message(Base):
     text: Mapped[str] = mapped_column(Text, nullable=True)
     raw: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    processed_nlp: Mapped[bool] = mapped_column(Integer, default=0)  # 0/1 for bool
+    processed_nlp: Mapped[Integer] = mapped_column(Integer, default=0,index=True)  # 0/1 for bool
+
+    nlp_retry_count = mapped_column(Integer, default=0)
+    last_nlp_attempt = mapped_column(DateTime, onupdate=func.now())
 
     nlp_results: Mapped[list["NLPResult"]] = relationship(back_populates="message", cascade="all, delete-orphan")
 
