@@ -20,7 +20,11 @@ async def lifespan(app: FastAPI):
         try:
             import sentry_sdk
             from sentry_sdk.integrations.fastapi import FastApiIntegration
-            sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.environment, integrations=[FastApiIntegration()])
+            sentry_sdk.init(
+                dsn=settings.sentry_dsn,
+                environment=getattr(settings, "environment", "development"),
+                integrations=[FastApiIntegration()],
+            )
         except ImportError:
             pass
     yield

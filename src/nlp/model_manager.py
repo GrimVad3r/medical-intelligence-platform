@@ -1,14 +1,18 @@
 """
-NLP Model Manager.
+NLP Model Manager with SSL Bypass for Corporate Networks.
 
-Handles loading, caching, and lifecycle management of NLP models (spaCy, transformers).
-Implements singleton pattern for efficient model reuse across the application.
+Handles loading, caching, and lifecycle management of NLP models.
 """
 
+import os
+import ssl
 import threading
+import urllib3
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
 
 from src.logger import get_logger
 from src.nlp.config import get_config, NLPConfig
@@ -91,7 +95,6 @@ class ModelManager:
                 logger.info("✓ SHAP explainer loaded successfully")
             except Exception as e:
                 logger.warning(f"! SHAP explainer failed to load: {e}")
-                # Non-critical, don't add to errors
         
         elapsed = (datetime.now() - start_time).total_seconds()
         
@@ -124,7 +127,6 @@ class ModelManager:
             return self._models[model_key]
         
         with self._load_lock:
-            # Double-check after acquiring lock
             if model_key in self._models:
                 return self._models[model_key]
             
@@ -133,10 +135,8 @@ class ModelManager:
             try:
                 import spacy
                 
-                # Try to load the model
                 model = spacy.load(self.config.ner_model)
                 
-                # Store model info
                 self._models[model_key] = model
                 self._load_times[model_key] = datetime.now()
                 self._model_versions[model_key] = self.config.ner_model
@@ -171,12 +171,12 @@ class ModelManager:
         """
         model_key = "classifier"
         
+        
         if model_key in self._models:
             logger.debug("Using cached classifier model")
             return self._models[model_key]
         
         with self._load_lock:
-            # Double-check after acquiring lock
             if model_key in self._models:
                 return self._models[model_key]
             
@@ -192,17 +192,73 @@ class ModelManager:
                     device = 0
                     logger.info("Using CUDA for classifier")
                 elif self.config.device == "mps" and torch.backends.mps.is_available():
-                    device = 0  # MPS
+                    device = 0
                     logger.info("Using MPS for classifier")
                 
-                # Load model
-                model = pipeline(
-                    "text-classification",
-                    model=self.config.classifier_model,
-                    device=device,
-                    truncation=True,
-                    max_length=512
-                )
+                # Try loading model with SSL bypass already in place
+
+                is_local = os.path.isdir(self.config.classifier_model)
+
+                try:
+                    logger.info("Attempting to download model from HuggingFace...")
+                    model = pipeline(
+                                "text-classification",
+                                model=self.config.classifier_model,
+                                tokenizer=self.config.classifier_model,
+                                # THIS IS THE FIX:
+                                # If it's a local path, tell the library NOT to look anywhere else
+                                local_files_only=is_local, 
+                                device=self.config.device
+                                )
+                    logger.info("✓ Model Loaded successfully")
+                    
+                except Exception as download_error:
+                    error_str = str(download_error).lower()
+                    
+                    if "ssl" in error_str or "certificate" in error_str:
+                        logger.error(f"SSL error despite bypass: {download_error}")
+                        logger.info("Trying to load from local cache...")
+                        
+                        try:
+                            # Try loading from cache only
+                            model = pipeline(
+                                "text-classification",
+                                model=self.config.classifier_model,
+                                device=device,
+                                truncation=True,
+                                max_length=512,
+                                local_files_only=True
+                            )
+                            logger.info("✓ Loaded from local cache")
+                            
+                        except Exception as cache_error:
+                            logger.error(f"Cache loading failed: {cache_error}")
+                            
+                            # Provide helpful error message
+                            logger.error("\n" + "="*70)
+                            logger.error("SSL CERTIFICATE ERROR - MANUAL INTERVENTION REQUIRED")
+                            logger.error("="*70)
+                            logger.error("\nDespite SSL bypass, the download failed.")
+                            logger.error("\nSOLUTIONS (try in order):")
+                            logger.error("\n1. Use a lighter model (recommended):")
+                            logger.error("   In .env, set:")
+                            logger.error("   NLP_CLASSIFIER_MODEL=distilbert-base-uncased-finetuned-sst-2-english")
+                            logger.error("\n2. Pre-download on another machine:")
+                            logger.error("   python download_models.py")
+                            logger.error("   Then copy 'local_models' folder here")
+                            logger.error("\n3. Use trusted-host with pip:")
+                            logger.error("   pip install transformers --trusted-host huggingface.co --trusted-host cdn.huggingface.co")
+                            logger.error("\n4. Get corporate CA certificate from IT:")
+                            logger.error("   set REQUESTS_CA_BUNDLE=C:\\path\\to\\corp-ca.pem")
+                            logger.error("="*70 + "\n")
+                            
+                            raise ModelLoadError(
+                                self.config.classifier_model,
+                                "SSL error and no local cache available"
+                            ) from download_error
+                    else:
+                        # Different error
+                        raise
                 
                 # Store model info
                 self._models[model_key] = model
@@ -236,7 +292,6 @@ class ModelManager:
             return self._models[model_key]
         
         with self._load_lock:
-            # Double-check after acquiring lock
             if model_key in self._models:
                 return self._models[model_key]
             
@@ -245,14 +300,9 @@ class ModelManager:
             try:
                 import shap
                 
-                # Get the classifier model to wrap
                 classifier = self.get_classifier_model()
-                
-                # Create explainer (implementation depends on your needs)
-                # This is a placeholder - you'll need to customize based on your model
                 explainer = shap.Explainer(classifier)
                 
-                # Store explainer info
                 self._models[model_key] = explainer
                 self._load_times[model_key] = datetime.now()
                 self._model_versions[model_key] = "shap"
@@ -269,24 +319,11 @@ class ModelManager:
                 raise ModelLoadError("shap", f"Error: {str(e)}") from e
     
     def is_loaded(self, model_name: str) -> bool:
-        """
-        Check if a model is currently loaded.
-        
-        Args:
-            model_name: Name of the model to check (ner, classifier, explainer)
-            
-        Returns:
-            True if model is loaded, False otherwise
-        """
+        """Check if a model is currently loaded."""
         return model_name in self._models
     
     def get_model_info(self) -> dict[str, dict]:
-        """
-        Get information about all loaded models.
-        
-        Returns:
-            Dictionary mapping model names to their info (version, load time)
-        """
+        """Get information about all loaded models."""
         info = {}
         for model_name in self._models.keys():
             info[model_name] = {
@@ -297,24 +334,11 @@ class ModelManager:
         return info
     
     def get_version_string(self) -> str:
-        """
-        Get version string for all loaded models.
-        
-        Returns:
-            Comma-separated version string
-        """
+        """Get version string for all loaded models."""
         return self.config.get_model_version_string()
     
     def unload_model(self, model_name: str) -> bool:
-        """
-        Unload a specific model from memory.
-        
-        Args:
-            model_name: Name of the model to unload
-            
-        Returns:
-            True if model was unloaded, False if it wasn't loaded
-        """
+        """Unload a specific model from memory."""
         with self._load_lock:
             if model_name in self._models:
                 del self._models[model_name]
@@ -337,20 +361,11 @@ class ModelManager:
     
     @staticmethod
     def _get_model_install_command(model_name: str) -> str:
-        """
-        Get installation command for a model.
-        
-        Args:
-            model_name: Name of the model
-            
-        Returns:
-            pip install command string
-        """
-        # Map common models to their install commands
+        """Get installation command for a model."""
         install_commands = {
-            "en_core_sci_md": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_core_sci_md-0.5.1.tar.gz",
-            "en_core_sci_lg": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_core_sci_lg-0.5.1.tar.gz",
-            "en_ner_bc5cdr_md": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.1/en_ner_bc5cdr_md-0.5.1.tar.gz",
+            "en_core_sci_md": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_md-0.5.4.tar.gz",
+            "en_core_sci_lg": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_core_sci_lg-0.5.4.tar.gz",
+            "en_ner_bc5cdr_md": "https://s3-us-west-2.amazonaws.com/ai2-s2-scispacy/releases/v0.5.4/en_ner_bc5cdr_md-0.5.4.tar.gz",
         }
         
         return install_commands.get(model_name, model_name)
@@ -361,15 +376,7 @@ _manager: ModelManager | None = None
 
 
 def get_model_manager(config: NLPConfig | None = None) -> ModelManager:
-    """
-    Get or create the global model manager instance.
-    
-    Args:
-        config: Optional configuration to use
-        
-    Returns:
-        Global ModelManager instance
-    """
+    """Get or create the global model manager instance."""
     global _manager
     if _manager is None:
         _manager = ModelManager(config)

@@ -40,14 +40,19 @@ class NLPConfig:
         default_factory=lambda: int(os.environ.get("NLP_MIN_TEXT_LENGTH", "3"))
     )
     
-    # Model versions
+    # Model versions / Paths
+    # UPDATED: Added logic to prioritize local models if they exist to bypass Netskope SSL issues
     ner_model: str = field(
         default_factory=lambda: os.environ.get("NLP_NER_MODEL", "en_core_sci_md")
     )
+    
     classifier_model: str = field(
         default_factory=lambda: os.environ.get(
             "NLP_CLASSIFIER_MODEL",
-            "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
+            # We explicitly point to your data/nlp_models/pubmedbert folder
+            str(Path(os.getcwd()) / "data" / "nlp_models" / "pubmedbert") 
+            if (Path(os.getcwd()) / "data" / "nlp_models" / "pubmedbert" / "config.json").exists() 
+            else "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext"
         )
     )
     
@@ -94,6 +99,13 @@ class NLPConfig:
     def __post_init__(self):
         """Validate configuration after initialization."""
         self._validate()
+        
+        # NEW: Force Transformers into OFFLINE mode if the local path is being used
+        if os.path.isdir(self.classifier_model):
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            os.environ["HF_DATASETS_OFFLINE"] = "1"
+            logger.info(f"✅ Local model detected at {self.classifier_model}. Forced Offline Mode.")
+            
         self._log_config()
     
     def _validate(self) -> None:
@@ -118,6 +130,12 @@ class NLPConfig:
         
         # Create model directory if it doesn't exist
         self.model_path.mkdir(parents=True, exist_ok=True)
+
+        # AUTO-OFFLINE DETECTION: If classifier is a local path, force offline mode
+        if os.path.isdir(self.classifier_model):
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            os.environ["HF_DATASETS_OFFLINE"] = "1"
+            logger.info(f"📍 Local model detected. Forcing TRANSFORMERS_OFFLINE=1")
     
     def _log_config(self) -> None:
         """Log current configuration."""
@@ -133,18 +151,12 @@ class NLPConfig:
     def from_env(cls) -> "NLPConfig":
         """
         Create configuration from environment variables.
-        
-        Returns:
-            NLPConfig instance with values loaded from environment
         """
         return cls()
     
     def get_model_version_string(self) -> str:
         """
         Get a string representation of all model versions.
-        
-        Returns:
-            Version string in format "ner:model_name,clf:model_name"
         """
         return f"ner:{self.ner_model},clf:{self.classifier_model}"
 
@@ -156,9 +168,6 @@ _config: NLPConfig | None = None
 def get_config() -> NLPConfig:
     """
     Get or create the global configuration instance.
-    
-    Returns:
-        Global NLPConfig instance
     """
     global _config
     if _config is None:

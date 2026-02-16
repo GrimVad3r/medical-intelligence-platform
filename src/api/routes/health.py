@@ -1,6 +1,6 @@
-"""Health check endpoints: /health (full), /ready (readiness with DB), /live (liveness only)."""
+"""Health check endpoints: /health (full), /ready (strict readiness with DB), /live (liveness only)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -24,9 +24,8 @@ def health(db: Session = Depends(get_db)):
 @router.get("/ready", response_model=HealthResponse)
 def ready(db: Session = Depends(get_db)):
     """Readiness probe: DB must be up. Use for K8s readinessProbe."""
-    db_status = "ok"
     try:
         db.execute(text("SELECT 1"))
-    except Exception:
-        db_status = "error"
-    return HealthResponse(status="ok", database=db_status)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail="database unavailable") from e
+    return HealthResponse(status="ok", database="ok")

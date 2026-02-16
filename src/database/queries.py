@@ -1,101 +1,107 @@
 """Common database queries."""
 
-from typing import List
-
-from sqlalchemy import select
-from sqlalchemy.orm import Session
-
-from src.database.models import Message, NLPResult, YOLOResult
-
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from src.database.models import Message, NLPResult, YOLOResult
 from src.logger import get_logger
 
 logger = get_logger(__name__)
 
 
+def _latest_nlp_result_subquery():
+    """Return subquery with latest NLPResult id per message."""
+    return (
+        select(
+            NLPResult.message_id.label("message_id"),
+            func.max(NLPResult.id).label("latest_result_id"),
+        )
+        .group_by(NLPResult.message_id)
+        .subquery()
+    )
+
+
 def get_unprocessed_messages(
     session: Session,
     limit: int = 1000,
-    max_retries: int = 3
+    max_retries: int = 3,
 ) -> list[Any]:
     """
     Get messages that haven't been NLP processed yet.
-    
+
     Args:
         session: Database session
         limit: Maximum number of messages to return
         max_retries: Skip messages that have failed this many times
-        
+
     Returns:
         List of Message objects
     """
     try:
-        from src.database.models import Message
-        
         stmt = (
             select(Message)
             .where(Message.processed_nlp == 0)
-            .where((Message.nlp_retry_count == None) | (Message.nlp_retry_count < max_retries))
+            .where(
+                (Message.nlp_retry_count.is_(None))
+                | (Message.nlp_retry_count < max_retries)
+            )
             .order_by(Message.created_at.desc())
             .limit(limit)
         )
-        
+
         messages = session.execute(stmt).scalars().all()
-        logger.info(f"Found {len(messages)} unprocessed messages")
+        logger.info("Found %d unprocessed messages", len(messages))
         return messages
-        
+
     except Exception as e:
-        logger.exception(f"Failed to get unprocessed messages: {e}")
+        logger.exception("Failed to get unprocessed messages: %s", e)
         return []
 
 
 def save_nlp_results(
     session: Session,
     message_id: int,
-    nlp_result: dict[str, Any]
+    nlp_result: dict[str, Any],
 ) -> bool:
     """
-    Save NLP processing results to database.
-    
+    Persist NLP output in nlp_results and mark message as processed.
+
     Args:
         session: Database session
         message_id: ID of the message
         nlp_result: NLP processing results dictionary
-        
+
     Returns:
         True if successful, False otherwise
     """
     try:
-        from src.database.models import Message
-        
         msg = session.get(Message, message_id)
         if not msg:
-            logger.warning(f"Message {message_id} not found")
+            logger.warning("Message %s not found", message_id)
             return False
-        
-        # Update message with NLP results
-        msg.entities = nlp_result.get("entities")
-        msg.category = nlp_result.get("category")
-        msg.confidence = nlp_result.get("confidence")
-        msg.linked_entities = nlp_result.get("linked_entities")
-        msg.relationships = nlp_result.get("relationships")
-        msg.processed_nlp = True
-        msg.nlp_processed_at = datetime.utcnow()
-        msg.nlp_version = nlp_result.get("metadata", {}).get("model_version")
-        msg.nlp_error = None
+
+        result_row = NLPResult(
+            message_id=message_id,
+            entities=nlp_result.get("entities") or {},
+            category=nlp_result.get("category"),
+            confidence=nlp_result.get("confidence"),
+            linked_entities=nlp_result.get("linked_entities") or {},
+        )
+        session.add(result_row)
+
+        msg.processed_nlp = 1
         msg.nlp_retry_count = 0
-        
+        msg.last_nlp_attempt = datetime.utcnow()
+
         session.commit()
-        logger.debug(f"Saved NLP results for message {message_id}")
+        logger.debug("Saved NLP results for message %s", message_id)
         return True
-        
+
     except Exception as e:
-        logger.exception(f"Failed to save NLP results for message {message_id}: {e}")
+        logger.exception("Failed to save NLP results for message %s: %s", message_id, e)
         session.rollback()
         return False
 
@@ -103,44 +109,41 @@ def save_nlp_results(
 def mark_nlp_error(
     session: Session,
     message_id: int,
-    error_message: str
+    error_message: str,
 ) -> bool:
     """
     Mark a message with an NLP processing error.
-    
+
     Args:
         session: Database session
         message_id: ID of the message
         error_message: Error description
-        
+
     Returns:
         True if successful, False otherwise
     """
     try:
-        from src.database.models import Message
-        
         msg = session.get(Message, message_id)
         if not msg:
-            logger.warning(f"Message {message_id} not found")
+            logger.warning("Message %s not found", message_id)
             return False
-        
-        msg.nlp_error = error_message[:500]  # Truncate long errors
+
+        msg.processed_nlp = 0
         msg.nlp_retry_count = (msg.nlp_retry_count or 0) + 1
-        msg.nlp_processed_at = datetime.utcnow()
-        
+        msg.last_nlp_attempt = datetime.utcnow()
+
         session.commit()
-        logger.debug(f"Marked NLP error for message {message_id}")
+        logger.debug("Marked NLP error for message %s: %s", message_id, error_message[:200])
         return True
-        
+
     except Exception as e:
-        logger.exception(f"Failed to mark error for message {message_id}: {e}")
+        logger.exception("Failed to mark error for message %s: %s", message_id, e)
         session.rollback()
         return False
 
-def save_yolo_results(session: Session, results: dict) -> int:
-    """Persist YOLO results. Expects results with keys like 'results' (list of per-image dicts)."""
-    from src.database.models import YOLOResult
 
+def save_yolo_results(session: Session, results: dict) -> int:
+    """Persist YOLO results. Expects results with key 'results' (list of per-image dicts)."""
     rows = results.get("results", results) if isinstance(results, dict) else results
     if not isinstance(rows, list):
         rows = [{"image_path": str(results), "detections": []}]
@@ -157,42 +160,41 @@ def save_yolo_results(session: Session, results: dict) -> int:
     session.commit()
     return count
 
+
 def get_messages_by_category(
     session: Session,
     category: str,
     min_confidence: float = 0.0,
-    limit: int = 100
+    limit: int = 100,
 ) -> list[Any]:
     """
-    Get messages classified into a specific category.
-    
+    Get messages classified into a specific category, based on latest NLP result.
+
     Args:
         session: Database session
         category: Category name
         min_confidence: Minimum confidence threshold
         limit: Maximum number of messages to return
-        
+
     Returns:
         List of Message objects
     """
     try:
-        from src.database.models import Message
-        
+        latest = _latest_nlp_result_subquery()
         stmt = (
             select(Message)
-            .where(Message.processed_nlp == True)
-            .where(Message.category == category)
-            .where(Message.confidence >= min_confidence)
-            .order_by(Message.confidence.desc())
+            .join(latest, latest.c.message_id == Message.id)
+            .join(NLPResult, NLPResult.id == latest.c.latest_result_id)
+            .where(NLPResult.category == category)
+            .where((NLPResult.confidence.is_(None)) | (NLPResult.confidence >= min_confidence))
+            .order_by(NLPResult.confidence.desc().nullslast())
             .limit(limit)
         )
-        
         messages = session.execute(stmt).scalars().all()
-        logger.debug(f"Found {len(messages)} messages in category '{category}'")
+        logger.debug("Found %d messages in category '%s'", len(messages), category)
         return messages
-        
     except Exception as e:
-        logger.exception(f"Failed to get messages by category: {e}")
+        logger.exception("Failed to get messages by category: %s", e)
         return []
 
 
@@ -200,225 +202,204 @@ def get_messages_with_entity(
     session: Session,
     entity_text: str,
     entity_type: str | None = None,
-    limit: int = 100
+    limit: int = 100,
 ) -> list[Any]:
     """
-    Get messages containing a specific entity.
-    
+    Get messages containing a specific entity in latest NLP result.
+
     Args:
         session: Database session
         entity_text: Entity text to search for
         entity_type: Optional entity type filter (DRUG, CONDITION, etc.)
         limit: Maximum number of messages to return
-        
+
     Returns:
         List of Message objects
     """
+
+    def _has_entity(entities: dict[str, Any], target: str, label: str | None) -> bool:
+        if not isinstance(entities, dict):
+            return False
+        target_l = target.lower()
+        labels = [label] if label else list(entities.keys())
+        for key in labels:
+            values = entities.get(key, [])
+            if not isinstance(values, list):
+                continue
+            for item in values:
+                if isinstance(item, dict) and str(item.get("text", "")).lower() == target_l:
+                    return True
+        return False
+
     try:
-        from src.database.models import Message
-        from sqlalchemy import func
-        
-        stmt = select(Message).where(Message.processed_nlp == True)
-        
-        # Search in entities JSON
-        # This is PostgreSQL-specific. Adjust for other databases.
-        if entity_type:
-            stmt = stmt.where(
-                func.jsonb_path_exists(
-                    Message.entities,
-                    f'$.{entity_type}[*] ? (@.text == "{entity_text}")'
-                )
-            )
-        else:
-            # Search across all entity types
-            stmt = stmt.where(
-                func.jsonb_path_exists(
-                    Message.entities,
-                    f'$.*[*] ? (@.text == "{entity_text}")'
-                )
-            )
-        
-        stmt = stmt.limit(limit)
-        
-        messages = session.execute(stmt).scalars().all()
-        logger.debug(f"Found {len(messages)} messages with entity '{entity_text}'")
-        return messages
-        
+        latest = _latest_nlp_result_subquery()
+        stmt = (
+            select(Message, NLPResult.entities)
+            .join(latest, latest.c.message_id == Message.id)
+            .join(NLPResult, NLPResult.id == latest.c.latest_result_id)
+            .limit(limit * 5)
+        )
+        rows = session.execute(stmt).all()
+
+        out: list[Message] = []
+        for msg, entities in rows:
+            if _has_entity(entities, entity_text, entity_type):
+                out.append(msg)
+                if len(out) >= limit:
+                    break
+        logger.debug("Found %d messages with entity '%s'", len(out), entity_text)
+        return out
     except Exception as e:
-        logger.exception(f"Failed to get messages with entity: {e}")
+        logger.exception("Failed to get messages with entity: %s", e)
         return []
 
 
 def get_nlp_processing_stats(session: Session) -> dict[str, Any]:
     """
     Get statistics about NLP processing.
-    
+
     Args:
         session: Database session
-        
+
     Returns:
         Dictionary with processing statistics
     """
     try:
-        from src.database.models import Message
-        from sqlalchemy import func
-        
-        # Total messages
-        total = session.query(func.count(Message.id)).scalar()
-        
-        # Processed messages
-        processed = session.query(func.count(Message.id)).where(
-            Message.processed_nlp == True
-        ).scalar()
-        
-        # Messages with errors
-        errors = session.query(func.count(Message.id)).where(
-            Message.nlp_error != None
-        ).scalar()
-        
-        # Category distribution
-        category_dist = session.query(
-            Message.category,
-            func.count(Message.id)
-        ).where(
-            Message.processed_nlp == True
-        ).group_by(Message.category).all()
-        
-        # Average confidence by category
-        avg_confidence = session.query(
-            Message.category,
-            func.avg(Message.confidence)
-        ).where(
-            Message.processed_nlp == True
-        ).group_by(Message.category).all()
-        
+        total = session.query(func.count(Message.id)).scalar() or 0
+        processed = (
+            session.query(func.count(Message.id))
+            .where(Message.processed_nlp == 1)
+            .scalar()
+            or 0
+        )
+        errors = (
+            session.query(func.count(Message.id))
+            .where((Message.processed_nlp == 0) & (Message.nlp_retry_count > 0))
+            .scalar()
+            or 0
+        )
+
+        latest = _latest_nlp_result_subquery()
+        category_dist = (
+            session.query(NLPResult.category, func.count(NLPResult.id))
+            .join(latest, NLPResult.id == latest.c.latest_result_id)
+            .group_by(NLPResult.category)
+            .all()
+        )
+        avg_confidence = (
+            session.query(NLPResult.category, func.avg(NLPResult.confidence))
+            .join(latest, NLPResult.id == latest.c.latest_result_id)
+            .group_by(NLPResult.category)
+            .all()
+        )
+
         stats = {
             "total_messages": total,
             "processed_messages": processed,
             "unprocessed_messages": total - processed,
             "error_messages": errors,
             "processing_rate": processed / total if total > 0 else 0.0,
-            "category_distribution": dict(category_dist),
-            "avg_confidence_by_category": dict(avg_confidence)
+            "category_distribution": {k: v for k, v in category_dist if k is not None},
+            "avg_confidence_by_category": {k: float(v) for k, v in avg_confidence if k is not None and v is not None},
         }
-        
-        logger.info(f"NLP processing stats: {processed}/{total} processed ({stats['processing_rate']:.1%})")
+        logger.info(
+            "NLP processing stats: %s/%s processed (%.1f%%)",
+            processed,
+            total,
+            stats["processing_rate"] * 100,
+        )
         return stats
-        
     except Exception as e:
-        logger.exception(f"Failed to get NLP stats: {e}")
+        logger.exception("Failed to get NLP stats: %s", e)
         return {}
 
 
 def retry_failed_messages(
     session: Session,
     max_retries: int = 3,
-    limit: int = 100
+    limit: int = 100,
 ) -> list[Any]:
     """
     Get messages that failed processing for retry.
-    
+
     Args:
         session: Database session
         max_retries: Maximum number of retries
         limit: Maximum number of messages to return
-        
+
     Returns:
         List of Message objects that can be retried
     """
     try:
-        from src.database.models import Message
-        
         stmt = (
             select(Message)
-            .where(Message.processed_nlp == False)
-            .where(Message.nlp_error != None)
+            .where(Message.processed_nlp == 0)
+            .where(Message.nlp_retry_count > 0)
             .where(Message.nlp_retry_count < max_retries)
-            .order_by(Message.nlp_processed_at.asc())
+            .order_by(Message.last_nlp_attempt.asc().nullsfirst())
             .limit(limit)
         )
-        
         messages = session.execute(stmt).scalars().all()
-        logger.info(f"Found {len(messages)} messages to retry")
+        logger.info("Found %d messages to retry", len(messages))
         return messages
-        
     except Exception as e:
-        logger.exception(f"Failed to get messages for retry: {e}")
+        logger.exception("Failed to get messages for retry: %s", e)
         return []
 
 
 def bulk_update_nlp_version(
     session: Session,
     old_version: str,
-    new_version: str
+    new_version: str,
 ) -> int:
     """
-    Update NLP version for reprocessing.
-    
-    Args:
-        session: Database session
-        old_version: Old version string to match
-        new_version: New version string to set
-        
-    Returns:
-        Number of messages updated
+    Retained for backward compatibility.
+
+    NLP version is not currently stored in ORM tables, so this is a no-op.
     """
-    try:
-        from src.database.models import Message
-        
-        stmt = (
-            update(Message)
-            .where(Message.nlp_version == old_version)
-            .values(nlp_version=new_version)
-        )
-        
-        result = session.execute(stmt)
-        session.commit()
-        
-        count = result.rowcount
-        logger.info(f"Updated {count} messages from version {old_version} to {new_version}")
-        return count
-        
-    except Exception as e:
-        logger.exception(f"Failed to bulk update NLP version: {e}")
-        session.rollback()
-        return 0
+    logger.warning(
+        "bulk_update_nlp_version is a no-op: no nlp_version field is currently persisted "
+        "(requested %s -> %s)",
+        old_version,
+        new_version,
+    )
+    return 0
 
 
 def reset_processing_status(
     session: Session,
-    message_ids: list[int] | None = None
+    message_ids: list[int] | None = None,
 ) -> int:
     """
-    Reset processing status for messages (for reprocessing).
-    
+    Reset processing status for messages (for reprocessing) and delete NLP results.
+
     Args:
         session: Database session
         message_ids: Optional list of specific message IDs to reset
-        
+
     Returns:
         Number of messages reset
     """
     try:
-        from src.database.models import Message
-        
-        stmt = update(Message).values(
-            processed_nlp=False,
-            nlp_error=None,
-            nlp_retry_count=0
+        msg_stmt = update(Message).values(
+            processed_nlp=0,
+            nlp_retry_count=0,
+            last_nlp_attempt=None,
         )
-        
+        nlp_stmt = delete(NLPResult)
+
         if message_ids:
-            stmt = stmt.where(Message.id.in_(message_ids))
-        
-        result = session.execute(stmt)
+            msg_stmt = msg_stmt.where(Message.id.in_(message_ids))
+            nlp_stmt = nlp_stmt.where(NLPResult.message_id.in_(message_ids))
+
+        result = session.execute(msg_stmt)
+        session.execute(nlp_stmt)
         session.commit()
-        
-        count = result.rowcount
-        logger.info(f"Reset processing status for {count} messages")
+
+        count = result.rowcount or 0
+        logger.info("Reset processing status for %d messages", count)
         return count
-        
     except Exception as e:
-        logger.exception(f"Failed to reset processing status: {e}")
+        logger.exception("Failed to reset processing status: %s", e)
         session.rollback()
         return 0

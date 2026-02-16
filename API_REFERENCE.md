@@ -20,13 +20,12 @@ Base URL (local): `http://localhost:8000`. Versioned routes: `/v1/...` (preferre
 
 ## YOLO
 
-- **POST /yolo/analyze** – Upload image or send URL. Returns detections (boxes, labels, scores).
-- **GET /yolo/results** – List recent YOLO runs. Query: `limit`, `image_id`.
+- **POST /yolo/analyze** – Upload image file (`multipart/form-data`). Returns detections for that image.
+- **GET /yolo/results** – List recent YOLO runs. Query: `limit`.
 
 ## Explainability (SHAP)
 
 - **POST /explainability/nlp** – Body: `{"text": "..."}`. Returns SHAP values for NLP model.
-- **POST /explainability/yolo** – Image + optional bbox. Returns SHAP for detection.
 
 ## Trends / Analytics
 

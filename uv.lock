@@ -1211,6 +1211,18 @@ wheels = [
 ]
 
 [[package]]
+name = "hf"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/30/a0/be471bcb9ae4d6d5f4b55a7d9cf08c2f7ca478fec28b0b85f9eb6f694fb5/hf-1.4.1.tar.gz", hash = "sha256:c8af8cf8914eab0a7adae3c58bd5a9e8a87fe668ef1c67b1e0d5e8eb9d7430e7", size = 2451, upload-time = "2026-02-06T09:19:54.805Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/44/b0/c894cbe0127d91fc203020a2225ea56bf246c7f2932866e56d2a323d55d7/hf-1.4.1-py3-none-any.whl", hash = "sha256:537c64f2dd11048166030f1e16ed969468e8999d3b33659e985c659b130a6f0e", size = 2405, upload-time = "2026-02-06T09:19:53.6Z" },
+]
+
+[[package]]
 name = "hf-xet"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1905,6 +1917,7 @@ dependencies = [
     { name = "dagster" },
     { name = "dbt-postgres" },
     { name = "fastapi" },
+    { name = "hf" },
     { name = "httpx" },
     { name = "psycopg2-binary" },
     { name = "pydantic" },
@@ -1951,6 +1964,7 @@ requires-dist = [
     { name = "dbt-postgres", specifier = ">=1.10.0" },
     { name = "fastapi", specifier = ">=0.109.0" },
     { name = "flake8", marker = "extra == 'dev'" },
+    { name = "hf", specifier = ">=1.4.1" },
     { name = "httpx", specifier = ">=0.26.0" },
     { name = "isort", marker = "extra == 'dev'" },
     { name = "mypy", marker = "extra == 'dev'" },

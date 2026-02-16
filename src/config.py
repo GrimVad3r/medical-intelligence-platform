@@ -35,6 +35,7 @@ class Settings(BaseSettings):
 
     api_host: str = "0.0.0.0"
     api_port: int = 8000
+    environment: str = "development"
     cors_origins: List[str] = ["*"]
     api_rate_limit: str | None = None  # e.g. "100/minute"
 
@@ -43,6 +44,7 @@ class Settings(BaseSettings):
     log_path: str | None = None  # optional file path
 
     sentry_dsn: str | None = None
+    database_pool_timeout: int = 30
 
     @field_validator("cors_origins", mode="before")
     @classmethod

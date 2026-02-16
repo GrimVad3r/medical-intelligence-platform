@@ -182,7 +182,13 @@ def _create_explainer(model: Any) -> Any:
             
             # Create a wrapper function for the model
             def model_fn(texts):
-                results = model(texts)
+
+                if not isinstance(texts, (list, str)):
+                    texts = texts.tolist()
+                
+                formatted_texts = [str(t) for t in texts]
+
+                results = model(formatted_texts)
                 if isinstance(results, list):
                     # Extract scores
                     scores = []
