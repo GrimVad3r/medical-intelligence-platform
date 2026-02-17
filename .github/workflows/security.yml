@@ -19,7 +19,5 @@ jobs:
       - run: pip install bandit safety
       - name: Bandit (security linter)
         run: bandit -r src dashboards scripts -ll -x ./tests
-        continue-on-error: true
       - name: Safety (dependency vulnerabilities)
         run: pip install -r requirements.txt && safety check --json
-        continue-on-error: true

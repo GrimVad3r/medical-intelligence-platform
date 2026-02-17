@@ -1,9 +1,9 @@
 """Configuration management via environment and pydantic-settings."""
 
 from functools import lru_cache
-from typing import List, Any, Optional
+from typing import Any, List
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,8 +36,9 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     environment: str = "development"
-    cors_origins: List[str] = ["*"]
+    cors_origins: List[str] = ["http://localhost:3000", "http://localhost:8501"]
     api_rate_limit: str | None = None  # e.g. "100/minute"
+    api_keys: list[str] = []
 
     log_level: str = "INFO"
     log_format: str = "text"  # text | json
@@ -51,7 +52,21 @@ class Settings(BaseSettings):
     def parse_cors_origins(cls, v):
         if isinstance(v, str):
             return [x.strip() for x in v.split(",") if x.strip()]
-        return v if v is not None else ["*"]
+        return v if v is not None else ["http://localhost:3000", "http://localhost:8501"]
+
+    @field_validator("api_keys", mode="before")
+    @classmethod
+    def parse_api_keys(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [x.strip() for x in v.split(",") if x.strip()]
+        return v or []
+
+    @model_validator(mode="after")
+    def validate_production_settings(self) -> "Settings":
+        if self.environment.lower() in {"production", "prod"}:
+            if any(origin == "*" for origin in self.cors_origins):
+                raise ValueError("CORS wildcard is not allowed in production")
+        return self
 
 
 @lru_cache

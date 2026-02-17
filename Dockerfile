@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY requirements.txt requirements-nlp.txt ./
 RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir -r requirements-nlp.txt || true
+    pip install --no-cache-dir -r requirements-nlp.txt
 
 COPY . .
 RUN pip install -e . && chown -R app:app /app

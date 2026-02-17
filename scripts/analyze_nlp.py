@@ -68,7 +68,8 @@ def analyze_from_db(
     limit: int = 100,
     explain: bool = False,
     relationships: bool = False,
-    batch_size: int = 50
+    batch_size: int = 50,
+    save_plots: bool = False
 ) -> dict[str, Any]:
     """Process messages from database with optimized batch committing."""
     
@@ -89,6 +90,9 @@ def analyze_from_db(
     
     logger.info(f"Processing {len(messages)} messages (Batch Size: {batch_size})")
     
+    shap_dir = Path("data/shap_plots")
+    if save_plots:
+        shap_dir.mkdir(parents=True, exist_ok=True)
     with session_factory() as session:
         for i, msg in enumerate(tqdm(messages, desc="NLP Processing", unit="msg")):
             try:
@@ -101,15 +105,15 @@ def analyze_from_db(
                     include_explanations=explain,
                     include_relationships=relationships
                 )
-                # Save SHAP plot for each DB message if explain enabled
-                if explain and "shap_values" in result:
+                # Save SHAP plot for each DB message if explain enabled and save_plots
+                if explain and save_plots and "shap_values" in result:
                     import shap
                     import matplotlib.pyplot as plt
                     shap_values = result["shap_values"]
                     explainer = result.get("explainer")
                     if explainer:
                         shap.summary_plot(shap_values, show=False)
-                        plt.savefig(f"shap_plot_db_{msg.id}.png")
+                        plt.savefig(shap_dir / f"shap_plot_db_{msg.id}.png")
                         plt.close()
                 # Update the object in the current session
                 db_msg = session.get(Message, msg.id)
@@ -142,15 +146,17 @@ def analyze_from_db(
 
 def analyze_text(processor, text, explain=False, relationships=False):
     result = processor.process(text, include_explanations=explain, include_relationships=relationships)
-    # Save SHAP plot if explain enabled and SHAP values present
-    if explain and "shap_values" in result:
+    # Save SHAP plot if explain enabled and SHAP values present and save_plots
+    if getattr(analyze_text, "save_plots", False) and explain and "shap_values" in result:
+        shap_dir = Path("data/shap_plots")
+        shap_dir.mkdir(parents=True, exist_ok=True)
         import shap
         import matplotlib.pyplot as plt
         shap_values = result["shap_values"]
         explainer = result.get("explainer")
         if explainer:
             shap.summary_plot(shap_values, show=False)
-            plt.savefig("shap_plot_text.png")
+            plt.savefig(shap_dir / "shap_plot_text.png")
             plt.close()
     return result
 
@@ -159,21 +165,23 @@ def analyze_from_file(processor, file_path, explain=False, relationships=False, 
     content = file_path.read_text(encoding="utf-8")
     texts = [line.strip() for line in content.splitlines() if line.strip()]
     results = []
+    shap_dir = Path("data/shap_plots")
     stats = {"total": len(texts), "processed": 0, "errors": 0, "start_time": time.time()}
     for i, text in enumerate(tqdm(texts), 1):
         try:
             res = processor.process(text, include_explanations=explain, include_relationships=relationships)
             results.append({"index": i, "text": text, **res})
             stats["processed"] += 1
-            # Save SHAP plot for each text if explain enabled
-            if explain and "shap_values" in res:
+            # Save SHAP plot for each text if explain enabled and save_plots
+            if getattr(analyze_from_file, "save_plots", False) and explain and "shap_values" in res:
+                shap_dir.mkdir(parents=True, exist_ok=True)
                 import shap
                 import matplotlib.pyplot as plt
                 shap_values = res["shap_values"]
                 explainer = res.get("explainer")
                 if explainer:
                     shap.summary_plot(shap_values, show=False)
-                    plt.savefig(f"shap_plot_file_{i}.png")
+                    plt.savefig(shap_dir / f"shap_plot_file_{i}.png")
                     plt.close()
         except Exception as e:
             stats["errors"] += 1
@@ -194,6 +202,7 @@ def main():
     input_group.add_argument("--file", type=Path)
     input_group.add_argument("--from-db", action="store_true")
     parser.add_argument("--explain", action="store_true", help="Include SHAP explanations")
+    parser.add_argument("--save_plots", action="store_true", help="Save SHAP plots to data/shap_plots")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=50)
     parser.add_argument("--output", type=Path)
@@ -224,13 +233,15 @@ def main():
         processor = MessageProcessor(model_manager=model_manager)
         
         if args.text:
-            result = analyze_text(processor, args.text,explain=args.explain)
+            analyze_text.save_plots = args.save_plots
+            result = analyze_text(processor, args.text, explain=args.explain)
             print(json.dumps(result, indent=2))
         elif args.file:
-            stats = analyze_from_file(processor, args.file, output_path=args.output)
+            analyze_from_file.save_plots = args.save_plots
+            stats = analyze_from_file(processor, args.file, output_path=args.output, explain=args.explain)
             print_statistics(stats)
         elif args.from_db:
-            stats = analyze_from_db(processor, get_session_factory(), limit=args.limit,explain=args.explain, batch_size=args.batch_size)
+            stats = analyze_from_db(processor, get_session_factory(), limit=args.limit, explain=args.explain, batch_size=args.batch_size, save_plots=args.save_plots)
             print_statistics(stats)
 
     except Exception as e:

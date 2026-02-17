@@ -208,7 +208,7 @@ class ModelManager:
                                 # THIS IS THE FIX:
                                 # If it's a local path, tell the library NOT to look anywhere else
                                 local_files_only=is_local, 
-                                device=self.config.device
+                                device=device
                                 )
                     logger.info("✓ Model Loaded successfully")
                     

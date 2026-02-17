@@ -17,24 +17,20 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "pydantic>=2.5.0",
     "pydantic-settings>=2.1.0",
+    "python-multipart>=0.0.9",
     "python-dotenv>=1.0.0",
     "httpx>=0.26.0",
     "streamlit>=1.29.0",
     "dagster>=1.6.0",
+    "prometheus-client>=0.20.0",
     "requests>=2.32.5",
     "dbt-postgres>=1.10.0",
     "telethon>=1.42.0",
     "python-socks[asyncio]>=2.8.0",
-    "pytest>=9.0.2",
-    "spacy>=3.7.0",
-    "shap>=0.44.0",
-    "transformers>=5.1.0",
-    "torch>=2.10.0",
-    "hf>=1.4.1",
 ]
 
 [project.optional-dependencies]
-nlp = ["spacy>=3.7.0", "transformers>=4.36.0", "shap>=0.44.0"]
+nlp = ["spacy>=3.7.0", "transformers>=4.36.0", "shap>=0.44.0", "torch>=2.0.0", "huggingface-hub>=0.20.0"]
 yolo = ["ultralytics>=8.0.0", "torch>=2.0.0"]
 dev = ["black", "isort", "flake8", "mypy", "pytest", "pre-commit"]
 

@@ -1,5 +1,6 @@
 """Custom middleware: security headers, request ID, error handling, logging."""
 
+from collections import defaultdict, deque
 import time
 import uuid
 from typing import Callable
@@ -13,6 +14,24 @@ logger = get_logger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-ID"
 REQUEST_ID_STATE = "request_id"
+
+
+def parse_rate_limit(rate_limit: str) -> tuple[int, int]:
+    """Parse rate limit format '<count>/<unit>' where unit is second|minute|hour."""
+    count_raw, unit_raw = rate_limit.split("/", 1)
+    count = int(count_raw.strip())
+    unit = unit_raw.strip().lower()
+    if unit in {"s", "sec", "second", "seconds"}:
+        window = 1
+    elif unit in {"m", "min", "minute", "minutes"}:
+        window = 60
+    elif unit in {"h", "hr", "hour", "hours"}:
+        window = 3600
+    else:
+        raise ValueError(f"Unsupported rate limit unit: {unit_raw}")
+    if count <= 0:
+        raise ValueError("Rate limit count must be positive")
+    return count, window
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -55,3 +74,24 @@ class LoggingMiddleware(BaseHTTPMiddleware):
             extra=extra,
         )
         return response
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Simple in-memory fixed-window rate limiter by client IP."""
+
+    def __init__(self, app, limit: int, window_seconds: int):
+        super().__init__(app)
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self._hits: dict[str, deque[float]] = defaultdict(deque)
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        client = request.client.host if request.client else "unknown"
+        now = time.time()
+        hit_window = self._hits[client]
+        while hit_window and now - hit_window[0] > self.window_seconds:
+            hit_window.popleft()
+        if len(hit_window) >= self.limit:
+            return Response(status_code=429, content="rate limit exceeded")
+        hit_window.append(now)
+        return await call_next(request)

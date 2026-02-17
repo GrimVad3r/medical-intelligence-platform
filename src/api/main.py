@@ -2,12 +2,22 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from src.api.routes import health, nlp, products, trends, yolo, explainability
+from src.api.security import require_api_key
 from src.config import get_settings
 from src.logger import get_logger
+
+try:
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+except ImportError:  # pragma: no cover - optional in local dev
+    CONTENT_TYPE_LATEST = "text/plain"
+
+    def generate_latest() -> bytes:
+        return b"prometheus client not installed"
 
 logger = get_logger(__name__)
 
@@ -47,31 +57,42 @@ app = FastAPI(
 )
 
 settings = get_settings()
+allow_credentials = all(origin != "*" for origin in settings.cors_origins)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-from src.api.middleware import SecurityHeadersMiddleware, RequestIdMiddleware, LoggingMiddleware
+from src.api.middleware import (
+    LoggingMiddleware,
+    RateLimitMiddleware,
+    RequestIdMiddleware,
+    SecurityHeadersMiddleware,
+    parse_rate_limit,
+)
 # Order: last added runs first. RequestId first so Logging can use request_id.
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIdMiddleware)
+if settings.api_rate_limit:
+    limit, window_seconds = parse_rate_limit(settings.api_rate_limit)
+    app.add_middleware(RateLimitMiddleware, limit=limit, window_seconds=window_seconds)
 
 app.include_router(health.router, tags=["health"])
-app.include_router(products.router, prefix="/v1/products", tags=["products"])
-app.include_router(nlp.router, prefix="/v1/nlp", tags=["nlp"])
-app.include_router(yolo.router, prefix="/v1/yolo", tags=["yolo"])
-app.include_router(explainability.router, prefix="/v1/explainability", tags=["explainability"])
-app.include_router(trends.router, prefix="/v1/trends", tags=["trends"])
+secured = [Depends(require_api_key)]
+app.include_router(products.router, prefix="/v1/products", tags=["products"], dependencies=secured)
+app.include_router(nlp.router, prefix="/v1/nlp", tags=["nlp"], dependencies=secured)
+app.include_router(yolo.router, prefix="/v1/yolo", tags=["yolo"], dependencies=secured)
+app.include_router(explainability.router, prefix="/v1/explainability", tags=["explainability"], dependencies=secured)
+app.include_router(trends.router, prefix="/v1/trends", tags=["trends"], dependencies=secured)
 # Backward compatibility: same routes without /v1
-app.include_router(products.router, prefix="/products", tags=["products"])
-app.include_router(nlp.router, prefix="/nlp", tags=["nlp"])
-app.include_router(yolo.router, prefix="/yolo", tags=["yolo"])
-app.include_router(explainability.router, prefix="/explainability", tags=["explainability"])
-app.include_router(trends.router, prefix="/trends", tags=["trends"])
+app.include_router(products.router, prefix="/products", tags=["products"], dependencies=secured)
+app.include_router(nlp.router, prefix="/nlp", tags=["nlp"], dependencies=secured)
+app.include_router(yolo.router, prefix="/yolo", tags=["yolo"], dependencies=secured)
+app.include_router(explainability.router, prefix="/explainability", tags=["explainability"], dependencies=secured)
+app.include_router(trends.router, prefix="/trends", tags=["trends"], dependencies=secured)
 
 
 @app.get("/")
@@ -83,3 +104,8 @@ def root():
 def live():
     """Liveness probe: no DB dependency. Use for K8s livenessProbe."""
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

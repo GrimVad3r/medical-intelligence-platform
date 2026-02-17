@@ -1,16 +1,19 @@
-"""Database migrations – programmatic or Alembic hook."""
+"""Database migrations - programmatic fallback or Alembic hook."""
 
-from sqlalchemy import Engine
+from sqlalchemy import Engine, inspect, text
+
+from src.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def run_migrations(engine: Engine) -> None:
-    """Run any programmatic migrations (e.g. alter table). Idempotent."""
-    from sqlalchemy import text
-    with engine.connect() as conn:
-        # Example: Add new column if not exists
-        try:
-            conn.execute(text("ALTER TABLE messages ADD COLUMN IF NOT EXISTS processed BOOLEAN DEFAULT FALSE"))
-        except Exception as e:
-            # Ignore if already exists or not supported
-            pass
-        # Add more migrations as needed
+    """Run idempotent schema migrations and fail loudly on unexpected errors."""
+    inspector = inspect(engine)
+    with engine.begin() as conn:
+        columns = {c["name"] for c in inspector.get_columns("messages")}
+        if "processed" not in columns:
+            conn.execute(
+                text("ALTER TABLE messages ADD COLUMN processed BOOLEAN DEFAULT FALSE")
+            )
+            logger.info("Migration applied: messages.processed")

@@ -8,3 +8,5 @@ python-dotenv>=1.0.0
 httpx>=0.26.0
 streamlit>=1.29.0
 dagster>=1.6.0
+prometheus-client>=0.20.0
+python-multipart>=0.0.9

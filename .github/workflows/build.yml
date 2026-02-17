@@ -20,4 +20,3 @@ jobs:
           DATABASE_URL: sqlite:///:memory:
       - name: Build Docker image
         run: docker build -t medical-intel-api:${{ github.sha }} -f Dockerfile .
-        continue-on-error: true

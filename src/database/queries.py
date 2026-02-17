@@ -403,3 +403,47 @@ def reset_processing_status(
         logger.exception("Failed to reset processing status: %s", e)
         session.rollback()
         return 0
+
+
+def get_trends_data(
+    session: Session,
+    from_date: str | None,
+    to_date: str | None,
+    granularity: str = "day",
+) -> list[dict[str, Any]]:
+    """Return time-series counts of NLP results."""
+    granularity = granularity.lower()
+    if granularity not in {"day", "week", "month"}:
+        raise ValueError("granularity must be one of: day, week, month")
+
+    start_dt = datetime.fromisoformat(from_date) if from_date else None
+    end_dt = datetime.fromisoformat(to_date) if to_date else None
+    if start_dt and end_dt and start_dt > end_dt:
+        raise ValueError("'from' cannot be after 'to'")
+
+    dialect = session.bind.dialect.name if session.bind is not None else ""
+    if granularity == "day":
+        bucket = func.date(NLPResult.created_at)
+    elif granularity == "week":
+        if dialect == "sqlite":
+            bucket = func.strftime("%Y-%W", NLPResult.created_at)
+        else:
+            bucket = func.to_char(func.date_trunc("week", NLPResult.created_at), "YYYY-IW")
+    else:
+        if dialect == "sqlite":
+            bucket = func.strftime("%Y-%m", NLPResult.created_at)
+        else:
+            bucket = func.to_char(func.date_trunc("month", NLPResult.created_at), "YYYY-MM")
+
+    stmt = (
+        select(bucket.label("bucket"), func.count(NLPResult.id).label("value"))
+        .group_by("bucket")
+        .order_by("bucket")
+    )
+    if start_dt:
+        stmt = stmt.where(NLPResult.created_at >= start_dt)
+    if end_dt:
+        stmt = stmt.where(NLPResult.created_at <= end_dt)
+
+    rows = session.execute(stmt).all()
+    return [{"date": str(bucket_val), "value": float(value)} for bucket_val, value in rows]

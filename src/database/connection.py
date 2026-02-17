@@ -17,14 +17,17 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
-        _engine = create_engine(
-            settings.database_url,
-            pool_pre_ping=True,
-            echo=False,
-            pool_size=getattr(settings, "database_pool_size", 5),
-            max_overflow=getattr(settings, "database_max_overflow", 10),
-            pool_timeout=getattr(settings, "database_pool_timeout", 30),
-        )
+        db_url = settings.database_url
+        engine_kwargs = {"pool_pre_ping": True, "echo": False}
+        if not db_url.startswith("sqlite"):
+            engine_kwargs.update(
+                {
+                    "pool_size": getattr(settings, "database_pool_size", 5),
+                    "max_overflow": getattr(settings, "database_max_overflow", 10),
+                    "pool_timeout": getattr(settings, "database_pool_timeout", 30),
+                }
+            )
+        _engine = create_engine(db_url, **engine_kwargs)
     return _engine
 
 

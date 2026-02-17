@@ -43,6 +43,7 @@ def main():
     parser.add_argument("input", type=Path, nargs="?", help="Image file or directory")
     parser.add_argument("--output", type=Path, default=None, help="Write results JSON here")
     parser.add_argument("--explain", action="store_true", help="Run SHAP explainability (slower)")
+    parser.add_argument("--save_plots", action="store_true", help="Save SHAP plots to data/shap_plots")
     parser.add_argument("--conf", type=float, default=None, help="Confidence threshold (override config)")
     parser.add_argument("--save-db", action="store_true", help="Persist results to database")
     parser.add_argument("--batch-size", type=int, default=8, help="Batch size for inference")
@@ -74,6 +75,20 @@ def main():
     except Exception as e:
         logger.exception("YOLO inference failed: %s", e)
         sys.exit(1)
+
+    # Save SHAP plots if requested
+    if args.explain and args.save_plots:
+        from pathlib import Path
+        shap_dir = Path("data/shap_plots")
+        shap_dir.mkdir(parents=True, exist_ok=True)
+        import matplotlib.pyplot as plt
+        for i, res in enumerate(results):
+            if "shap_values" in res and "explainer" in res and res["explainer"] is not None:
+                import shap
+                shap.summary_plot(res["shap_values"], show=False)
+                img_name = res.get("image_name") or f"img_{i+1}"
+                plt.savefig(shap_dir / f"shap_plot_{img_name}.png")
+                plt.close()
 
     if args.save_db:
         try:

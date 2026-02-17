@@ -6,7 +6,9 @@ import warnings
 
 def disable_ssl_verification():
     """Disable SSL verification for development in corporate networks."""
-    
+    if os.environ.get("ENVIRONMENT", "development").lower() in {"production", "prod"}:
+        raise RuntimeError("SSL verification cannot be disabled in production")
+
     # Disable SSL verification for requests
     os.environ['CURL_CA_BUNDLE'] = ''
     os.environ['REQUESTS_CA_BUNDLE'] = ''
