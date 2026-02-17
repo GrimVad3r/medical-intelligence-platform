@@ -20,24 +20,38 @@ def explain(
     max_features: int = 10
 ) -> dict[str, Any]:
     """
-    Generate SHAP explanations for model predictions.
-    
+    Generate SHAP explanations for NLP model predictions.
     Args:
         text: Input text to explain
-        model: Optional pre-loaded model (classifier or NER)
+        model: Pre-loaded classifier or NER model supporting SHAP
         max_features: Maximum number of top features to return
-        
     Returns:
-        Dictionary containing:
-        - feature_importance: List of (token, importance_score) tuples
-        - base_value: Baseline prediction value
-        - prediction: Model's prediction
-        - explanation_type: Type of explanation (additive, etc.)
-        
+        Dictionary with feature_importance, base_value, prediction, explanation_type
     Raises:
-        ModelLoadError: If SHAP explainer fails to initialize
-        
-    Example:
+        ModelLoadError if SHAP explainer fails
+    """
+    import shap
+    try:
+        if model is None:
+            raise ModelLoadError("NLP model instance required for SHAP explainability.")
+        # Tokenize input
+        tokens = text.split()
+        # SHAP explainability
+        explainer = shap.Explainer(model)
+        shap_values = explainer([text])
+        feature_importance = sorted(zip(tokens, shap_values.values[0]), key=lambda x: abs(x[1]), reverse=True)[:max_features]
+        base_value = shap_values.base_values[0]
+        prediction = model.predict([text])[0] if hasattr(model, 'predict') else None
+        explanation_type = 'additive'
+        return {
+            "feature_importance": feature_importance,
+            "base_value": base_value,
+            "prediction": prediction,
+            "explanation_type": explanation_type
+        }
+    except Exception as e:
+        logger.error(f"SHAP explainability error: {e}")
+        raise ModelLoadError(f"SHAP explainability failed: {e}")
         >>> explanation = explain("Patient prescribed Lisinopril for hypertension")
         >>> print(explanation["feature_importance"][:3])
         [

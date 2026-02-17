@@ -4,4 +4,8 @@ import streamlit as st
 
 
 def bar_chart(data: dict):
-    st.bar_chart(data)
+    import plotly.express as px
+    import pandas as pd
+    df = pd.DataFrame(list(data.items()), columns=["Category", "Value"])
+    fig = px.bar(df, x="Category", y="Value", title="Bar Chart")
+    st.plotly_chart(fig)

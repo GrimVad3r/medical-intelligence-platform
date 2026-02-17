@@ -206,6 +206,48 @@ def link_entities(
         raise EntityLinkingError(f"Failed to link entities: {str(e)}") from e
 
 
+    def link_entities(
+        entities: list[dict],
+        kb: dict,
+        threshold: float = 0.8
+    ) -> list[dict]:
+        """
+        Link extracted entities to KB using fuzzy matching and normalization.
+        Args:
+            entities: List of entity dicts (text, label, etc.)
+            kb: Knowledge base dict
+            threshold: Minimum similarity score for linking
+        Returns:
+            List of linked entity dicts with KB IDs
+        """
+        from rapidfuzz import process, fuzz
+        linked_entities = []
+        for entity in entities:
+            text = entity.get("text", "")
+            label = entity.get("label", "")
+            kb_entries = kb.get(label, [])
+            if not kb_entries:
+                entity["kb_id"] = None
+                entity["kb_match"] = None
+                entity["kb_score"] = 0.0
+                linked_entities.append(entity)
+                continue
+            # Normalize text for matching
+            norm_text = text.lower().strip()
+            norm_kb_entries = [e["name"].lower().strip() if isinstance(e, dict) and "name" in e else str(e).lower().strip() for e in kb_entries]
+            # Fuzzy match
+            match, score, idx = process.extractOne(norm_text, norm_kb_entries, scorer=fuzz.ratio)
+            if score >= threshold * 100:
+                kb_entry = kb_entries[idx]
+                entity["kb_id"] = kb_entry.get("id") if isinstance(kb_entry, dict) else kb_entry
+                entity["kb_match"] = kb_entry
+                entity["kb_score"] = score / 100.0
+            else:
+                entity["kb_id"] = None
+                entity["kb_match"] = None
+                entity["kb_score"] = score / 100.0
+            linked_entities.append(entity)
+        return linked_entities
 def _fuzzy_match(
     text: str,
     kb: dict,

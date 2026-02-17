@@ -95,30 +95,35 @@ def analyze_from_db(
                 if not getattr(msg, 'text', None):
                     stats["skipped"] += 1
                     continue
-                
                 # NLP Processing
                 result = processor.process(
                     msg.text,
                     include_explanations=explain,
                     include_relationships=relationships
                 )
-                
+                # Save SHAP plot for each DB message if explain enabled
+                if explain and "shap_values" in result:
+                    import shap
+                    import matplotlib.pyplot as plt
+                    shap_values = result["shap_values"]
+                    explainer = result.get("explainer")
+                    if explainer:
+                        shap.summary_plot(shap_values, show=False)
+                        plt.savefig(f"shap_plot_db_{msg.id}.png")
+                        plt.close()
                 # Update the object in the current session
                 db_msg = session.get(Message, msg.id)
                 if db_msg:
                     update_message_object(db_msg, result)
                     stats["processed"] += 1
-                
                 # Batch Commit: Every X records, save to disk
                 if (i + 1) % batch_size == 0:
                     session.commit()
                     logger.debug(f"Batch commit at record {i+1}")
-
             except Exception as e:
                 logger.error(f"Error processing message {msg.id}: {e}")
                 stats["errors"] += 1
                 session.rollback() # Rollback the current failed record
-                
                 # Mark error separately to avoid blocking the whole batch
                 with session_factory() as err_session:
                     err_msg = err_session.get(Message, msg.id)
@@ -126,7 +131,6 @@ def analyze_from_db(
                         err_msg.nlp_error = str(e)[:500]
                         err_msg.nlp_retry_count = (err_msg.nlp_retry_count or 0) + 1
                         err_session.commit()
-
         # Final commit for the remaining records
         session.commit()
     
@@ -137,7 +141,18 @@ def analyze_from_db(
 # ... [Keep analyze_text, analyze_from_file, print_statistics as they were] ...
 
 def analyze_text(processor, text, explain=False, relationships=False):
-    return processor.process(text, include_explanations=explain, include_relationships=relationships)
+    result = processor.process(text, include_explanations=explain, include_relationships=relationships)
+    # Save SHAP plot if explain enabled and SHAP values present
+    if explain and "shap_values" in result:
+        import shap
+        import matplotlib.pyplot as plt
+        shap_values = result["shap_values"]
+        explainer = result.get("explainer")
+        if explainer:
+            shap.summary_plot(shap_values, show=False)
+            plt.savefig("shap_plot_text.png")
+            plt.close()
+    return result
 
 def analyze_from_file(processor, file_path, explain=False, relationships=False, output_path=None):
     if not file_path.exists(): return {"error": "File not found"}
@@ -150,6 +165,16 @@ def analyze_from_file(processor, file_path, explain=False, relationships=False, 
             res = processor.process(text, include_explanations=explain, include_relationships=relationships)
             results.append({"index": i, "text": text, **res})
             stats["processed"] += 1
+            # Save SHAP plot for each text if explain enabled
+            if explain and "shap_values" in res:
+                import shap
+                import matplotlib.pyplot as plt
+                shap_values = res["shap_values"]
+                explainer = res.get("explainer")
+                if explainer:
+                    shap.summary_plot(shap_values, show=False)
+                    plt.savefig(f"shap_plot_file_{i}.png")
+                    plt.close()
         except Exception as e:
             stats["errors"] += 1
     stats["duration"] = time.time() - stats["start_time"]

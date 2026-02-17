@@ -13,8 +13,21 @@ def run_all_seeds(session_factory: Callable) -> None:
 
 
 def _seed_medical_terms_placeholder(session: Session) -> None:
-    """Optional: seed reference data. No-op if tables don't exist."""
-    pass
+    """Seed medical terms from data/medical_terms.json if table exists."""
+    from sqlalchemy import inspect
+    import json
+    from pathlib import Path
+    inspector = inspect(session.bind)
+    if "medical_terms" in inspector.get_table_names():
+        terms_path = Path("data/medical_terms.json")
+        if terms_path.exists():
+            with open(terms_path, "r", encoding="utf-8") as f:
+                terms = json.load(f)
+            for term in terms:
+                session.execute(
+                    "INSERT INTO medical_terms (name, description) VALUES (:name, :description)",
+                    {"name": term.get("name", ""), "description": term.get("description", "")}
+                )
 
 
 def seed_from_records(session_factory: Callable, records: list[dict[str, Any]], source: str = "") -> int:
