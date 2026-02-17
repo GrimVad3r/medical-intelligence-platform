@@ -27,6 +27,7 @@ dependencies = [
     "dbt-postgres>=1.10.0",
     "telethon>=1.42.0",
     "python-socks[asyncio]>=2.8.0",
+    "dagster-webserver>=1.12.14",
 ]
 
 [project.optional-dependencies]
